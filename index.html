@@ -1,12 +1,15 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<title>Statistiche Clash Royale</title>
+<title>Clash Royale Stats</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 :root{
-  --bg:#0f172a;--card:#1e293b;--accent:#38bdf8;--text:#e5e7eb
+  --bg:#0f172a;
+  --card:#1e293b;
+  --accent:#38bdf8;
+  --text:#e5e7eb;
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui;background:var(--bg);color:var(--text)}
@@ -27,22 +30,22 @@ canvas{max-width:100% !important;height:auto !important}
 }
 </style>
 </head>
-
 <body>
 
 <header>
-  <h1>👑 Statistiche Clash Royale</h1>
-  <input id="tag1" placeholder="TAG giocatore 1">
-  <input id="tag2" placeholder="TAG giocatore 2 (opzionale)">
-  <button onclick="carica()">Cerca</button>
+<h1>👑 Statistiche Clash Royale</h1>
+<input id="tag1" placeholder="TAG giocatore 1">
+<input id="tag2" placeholder="TAG giocatore 2 (opzionale)">
+<button onclick="carica()">Cerca</button>
+<button onclick="mostraPreferiti()">⭐ Preferiti</button>
 </header>
 
 <nav class="hidden" id="nav">
-  <button onclick="mostra('player')">👤 Giocatore</button>
-  <button onclick="mostra('battles')">⚔️ Battaglie</button>
-  <button onclick="mostra('clan')">🏰 Clan</button>
-  <button onclick="mostra('cards')">🃏 Carte</button>
-  <button onclick="mostra('compare')">🔍 Confronto</button>
+<button onclick="mostra('player')">👤 Giocatore</button>
+<button onclick="mostra('battles')">⚔️ Battaglie</button>
+<button onclick="mostra('clan')">🏰 Clan</button>
+<button onclick="mostra('cards')">🃏 Carte</button>
+<button onclick="mostra('compare')">🔍 Confronto</button>
 </nav>
 
 <div id="player" class="card hidden"></div>
@@ -50,6 +53,7 @@ canvas{max-width:100% !important;height:auto !important}
 <div id="clan" class="card hidden"></div>
 <div id="cards" class="card hidden"></div>
 <div id="compare" class="card hidden"></div>
+<div id="preferiti" class="card hidden"></div>
 
 <footer style="text-align:center;font-size:12px;opacity:.6;margin:30px">
 Dati forniti da RoyaleAPI & Supercell
@@ -57,37 +61,67 @@ Dati forniti da RoyaleAPI & Supercell
 
 <script>
 const API="https://proxy.royaleapi.dev/v1";
-let G1,G2,B1;
+let G1,G2,B1,grafico;
 
 function mostra(id){
   document.querySelectorAll(".card").forEach(c=>c.classList.add("hidden"));
   document.getElementById(id).classList.remove("hidden");
 }
 
-function mediaElisir(deck){
-  return (deck.reduce((a,c)=>a+c.elixir,0)/deck.length).toFixed(2);
+function mediaElisir(deck){ return (deck.reduce((a,c)=>a+c.elixir,0)/deck.length).toFixed(2); }
+
+async function fetchSafe(key,url){
+  try {
+    if(localStorage[key]) return JSON.parse(localStorage[key]);
+    const res = await fetch(url);
+    if(!res.ok) throw new Error("Errore API");
+    const d = await res.json();
+    localStorage[key]=JSON.stringify(d);
+    return d;
+  } catch(e){
+    console.error("Errore fetch",url,e);
+    return null;
+  }
 }
 
-async function fetchCache(key,url){
-  if(localStorage[key]) return JSON.parse(localStorage[key]);
-  const d=await fetch(url).then(r=>r.json());
-  localStorage[key]=JSON.stringify(d);
-  return d;
+function salvaPreferito(tag){ 
+  let lista = JSON.parse(localStorage.getItem("preferiti")||"[]");
+  if(!lista.includes(tag)) lista.push(tag);
+  localStorage.setItem("preferiti",JSON.stringify(lista));
+  alert("Aggiunto ai preferiti ⭐");
+}
+
+function mostraPreferiti(){
+  let lista = JSON.parse(localStorage.getItem("preferiti")||"[]");
+  if(lista.length===0) { alert("Nessun preferito"); return; }
+  document.getElementById("preferiti").innerHTML=
+    lista.map(t=>`<div>${t} <button onclick="ricarica('${t}')">Apri</button></div>`).join("");
+  mostra("preferiti");
+}
+
+function ricarica(tag){
+  document.getElementById("tag1").value=tag;
+  carica();
 }
 
 async function carica(){
   const t1=document.getElementById("tag1").value.replace("#","").toUpperCase();
   const t2=document.getElementById("tag2").value.replace("#","").toUpperCase();
 
+  if(!t1){ alert("Inserisci un TAG valido"); return; }
+
   document.getElementById("nav").classList.remove("hidden");
   document.getElementById("player").innerHTML="<p class='loader'>⏳ Caricamento...</p>";
 
-  // Fetch giocatore e battle log
-  G1=await fetchCache("g1",`${API}/players/%23${t1}`);
-  B1=await fetchCache("b1",`${API}/players/%23${t1}/battlelog`);
-  const cards=await fetchCache("cards",`${API}/cards`);
+  G1=await fetchSafe("g1",`${API}/players/%23${t1}`);
+  if(!G1){ document.getElementById("player").innerHTML="❌ Giocatore non trovato"; return; }
 
-  // GIocatore
+  salvaPreferito(t1);
+
+  B1=await fetchSafe("b1",`${API}/players/%23${t1}/battlelog`);
+  const cards=await fetchSafe("cards",`${API}/cards`);
+
+  // Player
   document.getElementById("player").innerHTML=`
     <h2>${G1.name} (#${G1.tag})</h2>
     <p>🏆 Coppe: ${G1.trophies} | 👑 Livello: ${G1.expLevel}</p>
@@ -99,45 +133,36 @@ async function carica(){
     <canvas id="grafico" height="120"></canvas>
   `;
 
-  // GRAFICO coppe/battaglie
-  new Chart(document.getElementById("grafico"),{
-    type:"line",
-    data:{
-      labels:B1.map((_,i)=>i+1),
-      datasets:[{label:"Differenza coppe",data:B1.map(b=>b.team[0].crowns-b.opponent[0].crowns),borderColor:"#38bdf8",fill:false}]
-    },
-    options:{responsive:true,plugins:{legend:{display:false}}}
-  });
+  if(grafico) grafico.destroy();
+  if(B1){
+    grafico = new Chart(document.getElementById("grafico"),{
+      type:"line",
+      data:{
+        labels:B1.map((_,i)=>i+1),
+        datasets:[{label:"Differenza coppe",data:B1.map(b=>b.team[0].crowns-b.opponent[0].crowns),borderColor:"#38bdf8",fill:false}]
+      },
+      options:{responsive:true,plugins:{legend:{display:false}}}
+    });
+  }
 
-  // BATTAGLIE
+  // Battle log
   document.getElementById("battles").innerHTML=
-    B1.map(b=>`<div>${b.gameMode.name} — ${b.team[0].crowns>b.opponent[0].crowns?"✅ Vittoria":"❌ Sconfitta"}</div>`).join("");
+    B1 ? B1.map(b=>`<div>${b.gameMode.name} — ${b.team[0].crowns>b.opponent[0].crowns?"✅ Vittoria":"❌ Sconfitta"}</div>`).join("") : "❌ Battle log non disponibile";
 
-  // CLAN
+  // Clan
   if(G1.clan){
-    const C=await fetchCache("clan",`${API}/clans/%23${G1.clan.tag.replace("#","")}`);
-    document.getElementById("clan").innerHTML=`
-      <h2>${C.name}</h2>
-      <p>👥 Membri: ${C.members}</p>
-      <p>🏆 Coppe clan: ${C.clanScore}</p>
-    `;
+    const C=await fetchSafe("clan",`${API}/clans/%23${G1.clan.tag.replace("#","")}`);
+    document.getElementById("clan").innerHTML=C ? `<h2>${C.name}</h2><p>👥 Membri: ${C.members}</p><p>🏆 Coppe clan: ${C.clanScore}</p>` : "❌ Clan non disponibile";
   } else document.getElementById("clan").innerHTML="Nessun clan";
 
-  // CARTE
-  document.getElementById("cards").innerHTML=
-    cards.items.map(c=>`<img width="40" title="${c.name}" src="https://cdn.royaleapi.com/static/img/cards/${c.key}.png">`).join("");
+  // Carte
+  document.getElementById("cards").innerHTML=cards ? cards.items.map(c=>`<img width="40" title="${c.name}" src="https://cdn.royaleapi.com/static/img/cards/${c.key}.png">`).join("") : "❌ Carte non disponibili";
 
-  // CONFRONTO
+  // Confronto
   if(t2){
-    G2=await fetchCache("g2",`${API}/players/%23${t2}`);
-    document.getElementById("compare").innerHTML=`
-      <h2>Confronto</h2>
-      <p>${G1.name}: ${G1.trophies} 🏆</p>
-      <p>${G2.name}: ${G2.trophies} 🏆</p>
-    `;
-  } else{
-    document.getElementById("compare").innerHTML="Inserisci un secondo TAG per confrontare";
-  }
+    G2=await fetchSafe("g2",`${API}/players/%23${t2}`);
+    document.getElementById("compare").innerHTML=G2 ? `<h2>Confronto</h2><p>${G1.name}: ${G1.trophies} 🏆</p><p>${G2.name}: ${G2.trophies} 🏆</p>` : "❌ Player 2 non trovato";
+  } else document.getElementById("compare").innerHTML="Inserisci un secondo TAG per confrontare";
 
   mostra("player");
 }
